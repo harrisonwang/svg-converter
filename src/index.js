@@ -3,6 +3,7 @@ let originalSvg = null;
 let currentSvg = null;
 let pngOutput = null;
 let originalFileName = null;
+let originalImage = null; // 用于存储PNG/JPG原始图像
 
 // DOM 元素
 const uploadArea = document.getElementById('uploadArea');
@@ -128,6 +129,91 @@ function getSelectedFormat() {
   return activeTab ? activeTab.getAttribute('data-format') : 'png';
 }
 
+// 获取当前操作模式（SVG 或图像）
+function getCurrentMode() {
+  const format = getSelectedFormat();
+  return format.includes('-to-') ? 'image' : 'svg';
+}
+
+// 处理文件上传，根据选择的模式决定接受什么类型的文件
+function updateFileInputAccept() {
+  const mode = getCurrentMode();
+  const format = getSelectedFormat();
+  
+  if (mode === 'svg') {
+    fileInput.accept = '.svg';
+    uploadArea.querySelector('p').textContent = '点击或拖放 SVG 文件到此处';
+  } else if (format === 'png-to-webp') {
+    fileInput.accept = '.png';
+    uploadArea.querySelector('p').textContent = '点击或拖放 PNG 文件到此处';
+  } else if (format === 'jpg-to-webp') {
+    fileInput.accept = '.jpg,.jpeg';
+    uploadArea.querySelector('p').textContent = '点击或拖放 JPG 文件到此处';
+  }
+}
+
+// 处理图像文件 (PNG/JPG)
+async function handleImageFile(file) {
+  try {
+    const reader = new FileReader();
+    
+    // 提取文件名（不包括扩展名）
+    originalFileName = file.name.replace(/\.(png|jpg|jpeg)$/i, '');
+    
+    reader.onload = (event) => {
+      originalImage = event.target.result;
+      
+      // 显示原图预览
+      const img = document.createElement('img');
+      img.src = originalImage;
+      img.className = 'preview-image';
+      svgPreview.innerHTML = '';
+      svgPreview.appendChild(img);
+      
+      // 清除旧的转换预览
+      pngPreview.innerHTML = '';
+      pngOutput = null;
+      downloadBtn.disabled = true;
+      
+      const format = getSelectedFormat();
+      const sourceFormat = format.startsWith('png') ? 'PNG' : 'JPG';
+      showStatus(`${sourceFormat} 文件 "${file.name}" 已加载，点击"转换"按钮生成 WebP`);
+    };
+    
+    reader.onerror = () => {
+      showStatus('读取文件时发生错误', 'error');
+    };
+    
+    reader.readAsDataURL(file);
+  } catch (error) {
+    console.error('处理图像文件时出错:', error);
+    showStatus('处理图像文件时出错', 'error');
+  }
+}
+
+// 修改文件处理函数，根据当前模式选择处理方法
+async function handleFile(file) {
+  const mode = getCurrentMode();
+  const format = getSelectedFormat();
+  
+  if (mode === 'svg') {
+    if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) {
+      handleSvgFile(file);
+    } else {
+      showStatus('请上传 SVG 文件', 'error');
+    }
+  } else {
+    if (format === 'png-to-webp' && (file.type === 'image/png' || file.name.endsWith('.png'))) {
+      handleImageFile(file);
+    } else if (format === 'jpg-to-webp' && (file.type === 'image/jpeg' || file.name.endsWith('.jpg') || file.name.endsWith('.jpeg'))) {
+      handleImageFile(file);
+    } else {
+      const expectedType = format === 'png-to-webp' ? 'PNG' : 'JPG';
+      showStatus(`请上传 ${expectedType} 文件`, 'error');
+    }
+  }
+}
+
 // 修改 convertSvgToPng 函数以支持 WebP
 async function convertSvgToPng() {
   if (!currentSvg) {
@@ -221,6 +307,85 @@ async function convertSvgToPng() {
   }
 }
 
+// 添加图像转WebP的函数
+async function convertImageToWebP() {
+  if (!originalImage) {
+    showStatus('请先上传图像文件', 'error');
+    return;
+  }
+  
+  showStatus('正在转换...');
+  
+  try {
+    // 创建图片元素加载图像
+    const img = new Image();
+    
+    // 使用 Promise 等待图片加载
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error('图像加载失败'));
+      img.src = originalImage;
+    });
+    
+    // 创建 Canvas 元素
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    
+    // 获取绘图上下文
+    const ctx = canvas.getContext('2d');
+    
+    // 在 Canvas 上绘制图像
+    ctx.drawImage(img, 0, 0);
+    
+    // 使用原始文件名创建输出文件名
+    const filename = originalFileName ? 
+                    `${originalFileName}.webp` : 
+                    'converted.webp';
+    
+    // 转换 Canvas 为 WebP 格式的 Blob
+    const quality = 0.9; // WebP质量，可以通过添加UI控件让用户调整
+    const outputBlob = await new Promise(resolve => {
+      canvas.toBlob(resolve, 'image/webp', quality);
+    });
+    
+    // 创建输出的 URL
+    const outputUrl = URL.createObjectURL(outputBlob);
+    
+    // 清理旧的预览
+    pngPreview.innerHTML = '';
+    
+    // 显示新的预览
+    const outputImg = document.createElement('img');
+    outputImg.src = outputUrl;
+    outputImg.className = 'preview-image';
+    pngPreview.appendChild(outputImg);
+    
+    // 保存输出
+    pngOutput = { blob: outputBlob, url: outputUrl, filename: filename };
+    downloadBtn.disabled = false;
+    
+    // 显示完成信息
+    const format = getSelectedFormat();
+    const sourceFormat = format.startsWith('png') ? 'PNG' : 'JPG';
+    showStatus(`${sourceFormat} 成功转换为 WebP！`, 'success');
+  } catch (error) {
+    console.error('转换图像时出错:', error);
+    showStatus(`转换失败: ${error.message}`, 'error');
+  }
+}
+
+// 修改convertSvgToPng函数，根据当前模式选择处理方法
+async function convertToOutput() {
+  const mode = getCurrentMode();
+  
+  if (mode === 'svg') {
+    await convertSvgToPng();
+  } else {
+    await convertImageToWebP();
+  }
+}
+
 // 修改downloadPng函数，使名称更通用
 function downloadOutput() {
   if (!pngOutput) {
@@ -276,11 +441,7 @@ function setupDragAndDrop() {
     
     if (files.length > 0) {
       const file = files[0];
-      if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) {
-        handleSvgFile(file);
-      } else {
-        showStatus('请上传 SVG 文件', 'error');
-      }
+      handleFile(file);
     }
   }
 }
@@ -309,23 +470,20 @@ function setupEventListeners() {
   fileInput.addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
       const file = e.target.files[0];
-      if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) {
-        handleSvgFile(file);
-      } else {
-        showStatus('请上传 SVG 文件', 'error');
-      }
+      handleFile(file);
       // 重置 input，以便能够重新选择同一文件
       fileInput.value = '';
     }
   });
   
-  // 转换按钮
-  convertBtn.addEventListener('click', convertSvgToPng);
+  // 转换按钮 - 修改事件监听器以使用新函数
+  convertBtn.addEventListener('click', convertToOutput);
   
   // 主标签点击事件
   const mainTabs = document.querySelectorAll('.main-tab');
   const mainTitle = document.getElementById('mainTitle');
   const previewTitle = document.querySelector('.preview-container:last-child .preview-title');
+  const firstPreviewTitle = document.querySelector('.preview-container:first-child .preview-title');
   
   mainTabs.forEach(tab => {
     tab.addEventListener('click', () => {
@@ -334,27 +492,60 @@ function setupEventListeners() {
       // 设置当前标签为活动状态
       tab.classList.add('active');
       
-      // 获取格式
+      // 获取格式和模式
       const format = tab.getAttribute('data-format');
+      const mode = getCurrentMode();
+      
+      // 更新文件选择接受类型
+      updateFileInputAccept();
       
       // 更新标题
-      mainTitle.textContent = `SVG 转 ${format.toUpperCase()} 工具`;
-      
-      // 更新预览标题
-      if (previewTitle) {
-        previewTitle.textContent = `${format.toUpperCase()} 预览`;
+      if (mode === 'svg') {
+        const outputFormat = format.toUpperCase();
+        mainTitle.textContent = `SVG 转 ${outputFormat} 工具`;
+        firstPreviewTitle.textContent = 'SVG 预览';
+        previewTitle.textContent = `${outputFormat} 预览`;
+      } else {
+        const sourceFormat = format.startsWith('png') ? 'PNG' : 'JPG';
+        mainTitle.textContent = `${sourceFormat} 转 WebP 工具`;
+        firstPreviewTitle.textContent = `${sourceFormat} 预览`;
+        previewTitle.textContent = 'WebP 预览';
       }
       
       // 更新下载按钮文本
       if (downloadBtn) {
-        downloadBtn.textContent = `下载 ${format.toUpperCase()}`;
+        if (mode === 'svg') {
+          downloadBtn.textContent = `下载 ${format.toUpperCase()}`;
+        } else {
+          downloadBtn.textContent = '下载 WebP';
+        }
       }
       
-      // 如果已经有转换结果，清除它（因为格式改变了）
-      if (pngOutput) {
-        pngPreview.innerHTML = '';
-        pngOutput = null;
-        downloadBtn.disabled = true;
+      // 清除所有预览和数据
+      svgPreview.innerHTML = '';
+      pngPreview.innerHTML = '';
+      pngOutput = null;
+      originalSvg = null;
+      currentSvg = null;
+      originalImage = null;
+      downloadBtn.disabled = true;
+      
+      // 显示准备就绪消息
+      if (mode === 'svg') {
+        showStatus('准备就绪，请上传 SVG 文件');
+      } else {
+        const expectedType = format.startsWith('png') ? 'PNG' : 'JPG';
+        showStatus(`准备就绪，请上传 ${expectedType} 文件`);
+      }
+      
+      // 显示/隐藏相关控件
+      const controls = document.querySelector('.controls');
+      if (controls) {
+        if (mode === 'svg') {
+          controls.style.display = 'flex';
+        } else {
+          controls.style.display = 'none'; // 隐藏SVG特定的控件
+        }
       }
     });
   });
@@ -364,6 +555,7 @@ function setupEventListeners() {
 document.addEventListener('DOMContentLoaded', () => {
   setupDragAndDrop();
   setupEventListeners();
+  updateFileInputAccept(); // 初始化文件接受类型
   showStatus('准备就绪，请上传 SVG 文件');
   
   // 初始化下载按钮文本和标题

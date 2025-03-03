@@ -1,12 +1,24 @@
 {
   "name": "svg-converter",
   "version": "1.0.0",
-  "description": "SVG to PNG/WebP converter with Chinese font support",
+  "description": "SVG/PNG/JPG 图像格式转换工具，支持中文字体",
   "main": "index.js",
   "scripts": {
     "build": "webpack",
-    "dev": "webpack serve"
+    "dev": "webpack serve",
+    "start": "webpack serve --open"
   },
+  "keywords": [
+    "svg",
+    "png",
+    "webp",
+    "jpg",
+    "converter",
+    "image",
+    "中文字体"
+  ],
+  "author": "小王爷",
+  "license": "MIT",
   "devDependencies": {
     "copy-webpack-plugin": "^11.0.0",
     "webpack": "^5.82.0",
